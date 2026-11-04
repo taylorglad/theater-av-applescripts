@@ -1,0 +1,3 @@
+*.applescript text eol=lf linguist-language=AppleScript
+*.scpt binary
+*.scptd binary

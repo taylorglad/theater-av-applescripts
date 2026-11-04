@@ -1,0 +1,1468 @@
+--by Taylor Glad. Updated March 31 2024. version 3.1
+--Script will prompt you for a tsv or csv file. You can select multiple files. You don't need Microsoft Excel, or any other spreadsheet editor open.
+
+
+--use this sheet:
+--https://docs.google.com/spreadsheets/d/1Z--2UYToCa054WpF5W9hxfIapoohNZ2vGqBo5gIEh_A/template/preview
+
+
+--if the script crashes, make sure you are using version 3 of the QLab Batch Cue Generator sheet. See https://www.taylorglad.com/post/qlab-5-batch-cue-generator-tsv
+--feel free to send me any feedback in the comments or through the Contact Me page on the website.
+
+
+--the script will recognize what sheet/tab/page you exported, and use the correct section to handle the batch.
+
+
+
+
+set TheFiles to choose file of type {"tsv", "csv"} with prompt "Select tsv or csv files:" with multiple selections allowed
+repeat with TheFile in TheFiles
+set theFileContents to read TheFile
+
+
+
+
+set thetids to AppleScript's text item delimiters
+tell application "Finder" to set fileType to name extension of file TheFile
+if fileType is "csv" then
+set AppleScript's text item delimiters to ","
+else if fileType is "tsv" then
+set AppleScript's text item delimiters to tab
+end if
+
+
+set thenumberofrows to count of paragraphs of theFileContents
+
+
+set tsvType to text item 1 of paragraph 2 of theFileContents
+
+
+--make tsvType all lowercase, so it is not case sensitive in case people change it manually
+--(Group cues, start cues, load-to-time cues, and memo cues have identical sheets, and can all be interchangeable)
+set theComparisonCharacters to "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+set theSourceCharacters to "abcdefghijklmnopqrstuvwxyz"
+set theAlteredText to ""
+repeat with aCharacter in tsvType
+set theoffset to offset of aCharacter in theComparisonCharacters
+if theoffset is not 0 then
+set theAlteredText to (theAlteredText & character theoffset of theSourceCharacters) as string
+else
+set theAlteredText to (theAlteredText & aCharacter) as string
+end if
+end repeat
+set tsvType to theAlteredText
+
+
+
+
+
+
+
+
+tell application id "com.figure53.QLab.5" to tell front workspace
+
+
+
+
+--Handle where the new cues will be created
+set newCueGroupType to text item 1 of paragraph 4 of theFileContents --New Group, Cue List, New Cue List
+set addHeader to false
+
+
+if {"Prompt", "Slices"} does not contain tsvType then
+set newCueGroupName to text item 1 of paragraph 6 of theFileContents
+if newCueGroupType is "New Group" then
+make type "group"
+set newCueGroup to last item of (selected as list)
+set the mode of newCueGroup to start_first_and_enter
+set the q name of newCueGroup to newCueGroupName
+set the q number of newCueGroup to ""
+collapse newCueGroup
+else if newCueGroupType is "New Cue List" then
+make type "cue list"
+--set newCueGroup to last cue list
+set q name of last cue list to newCueGroupName
+set current cue list to (last cue list whose q name is newCueGroupName)
+else if newCueGroupType is "Cue List" then
+try
+set current cue list to (last cue list whose q name is newCueGroupName)
+--set newCueGroup to current cue list
+on error
+make type "cue list"
+--set newCueGroup to last cue list
+set q name of last cue list to newCueGroupName
+set current cue list to (last cue list whose q name is newCueGroupName)
+end try
+else if newCueGroupType is "Cue List with Header" then
+try
+set current cue list to (last cue list whose q name is newCueGroupName)
+--set newCueGroup to current cue list
+on error
+make type "cue list"
+--set newCueGroup to last cue list
+set q name of last cue list to newCueGroupName
+set current cue list to (last cue list whose q name is newCueGroupName)
+end try
+set addHeader to true
+end if
+end if --tsvType is not "Prompt"
+
+
+
+
+if tsvType is "group cues" then
+try
+if addHeader then
+make type "memo"
+set memoCue to last item of (selected as list)
+set the q name of memoCue to text item 1 of paragraph 1 of theFileContents
+end if
+repeat with rowCount from 3 to thenumberofrows
+set theRow to (paragraph rowCount) of theFileContents
+if text items 2 through 7 of theRow is not {"", "", "", "", "", ""} then
+make type "group"
+set theCue to last item of (selected as list)
+set groupType to text item 1 of paragraph 8 of theFileContents
+if groupType is "Cue List" then
+set the mode of theCue to cue_list
+else if groupType is "Timeline" then
+set the mode of theCue to timeline
+else if groupType is "Playlist" then
+set the mode of theCue to playlist
+else if groupType is "Start first and enter" then
+set the mode of theCue to start_first_and_enter
+else if groupType is "Start first" then
+set the mode of theCue to start_first
+else if groupType is "Start random" then
+set the mode of theCue to start_random
+end if -- groupType
+set theCue to last item of (selected as list)
+if text item 2 of theRow is not "" then set the q number of theCue to text item 2 of theRow
+if text item 3 of theRow is not "" then set the q name of theCue to text item 3 of theRow
+if text item 7 of theRow is not "" then set the pre wait of theCue to text item 7 of theRow
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+end if
+end repeat
+on error
+display dialog "This script encountered an error. Make sure you are using version 3 of the QLab Batch Cue Generator sheet.  See https://www.taylorglad.com/post/qlab-5-batch-cue-generator-tsv-csv"
+end try
+
+
+
+
+
+
+
+
+else if tsvType is "slices" then
+try
+set theSelection to the selected as list
+repeat with theCue in theSelection
+if (the q type of theCue is "Video") or (the q type of theCue is "Audio") then
+set theCueEndTime to the end time of theCue
+set theMarkers to {}
+repeat with rowCount from 3 to thenumberofrows
+set eachRow to (paragraph rowCount) of theFileContents
+
+
+set theSliceTime to (text item 6 of eachRow)
+if theSliceTime as real is greater than theCueEndTime as real then
+display dialog "One of the imported slices in your TSV/CSV is past the end time of your selected cue" with title "Incompatible Slice" with icon 2
+return
+end if
+
+
+set theSlicePlayCount to (text item 2 of eachRow)
+if theSlicePlayCount is not "inf" then
+if (text item 2 of eachRow as string as real) * 1 is 0 then --checks to see if it is ...something I don't remember...
+set theSlicePlayCount to "1"
+else if theSlicePlayCount is "" then
+set theSlicePlayCount to "1"
+end if
+end if
+
+
+if theSliceTime is not in {"", "0"} then
+set end of theMarkers to {time:theSliceTime, playCount:theSlicePlayCount}
+end if
+
+
+end repeat --for eachLine
+set the slice markers of theCue to theMarkers
+
+
+else --theCue is an Audio or Video cue
+display dialog "Please select an audio or video cue before running this script." with title "Select Audio or Video Cue" with icon 2
+end if --theCue is an Audio or Video cue
+end repeat --of the selected cues
+on error
+display dialog "This script encountered an error. Make sure you are using version 3 of the QLab Batch Cue Generator sheet.  See https://www.taylorglad.com/post/qlab-5-batch-cue-generator-tsv"
+end try
+
+
+
+
+
+
+
+
+else if tsvType is "text cues" then
+try
+if addHeader then
+make type "memo"
+set memoCue to last item of (selected as list)
+set the q name of memoCue to text item 1 of paragraph 1 of theFileContents
+end if
+repeat with rowCount from 3 to thenumberofrows
+set theRow to (paragraph rowCount) of theFileContents
+if text items 2 through 10 of theRow is not {"", "", "", "", "", "", "", "", ""} then
+make type "text"
+set theCue to last item of (selected as list)
+if text item 2 of theRow is not "" then set the q number of theCue to text item 2 of theRow
+if text item 3 of theRow is not "" then set the q name of theCue to text item 3 of theRow
+if text item 4 of theRow is not "" then set the text of theCue to text item 4 of theRow
+
+
+set theLayer to text item 5 of theRow --MAKE THE LAYER ALL LOWERCASE TO NOT BE CASE SENSITIVE
+set theComparisonCharacters to "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+set theSourceCharacters to "abcdefghijklmnopqrstuvwxyz"
+set theAlteredText to ""
+repeat with aCharacter in theLayer
+set theoffset to offset of aCharacter in theComparisonCharacters
+if theoffset is not 0 then
+set theAlteredText to (theAlteredText & character theoffset of theSourceCharacters) as string
+else
+set theAlteredText to (theAlteredText & aCharacter) as string
+end if
+end repeat
+set theLayer to theAlteredText
+
+
+if theLayer is not "" then
+if theLayer is "top" then
+set the layer of theCue to 1000
+else if theLayer is "bottom" then
+set the layer of theCue to 0
+else
+set the layer of theCue to theLayer
+end if
+end if
+
+
+if text item 6 of theRow is not "" and the q number of theCue is not "" then
+set myOSC to ("/cue/" & text item 2 of theRow & "/stageID " & text item 6 of theRow) as string
+do shell script "echo " & myOSC & " | nc -u -w 0 127.0.0.1 53535"
+end if
+
+
+if text item 10 of theRow is not "" then set the pre wait of theCue to text item 10 of theRow
+
+
+--Move inside group if indicated
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+end if
+end repeat
+on error
+display dialog "This script encountered an error. Make sure you are using version 3 of the QLab Batch Cue Generator sheet.  See https://www.taylorglad.com/post/qlab-5-batch-cue-generator-tsv"
+end try
+
+
+
+
+
+
+
+
+
+
+else if tsvType is "osc qlab cues" then
+try
+if addHeader then
+make type "memo"
+set memoCue to last item of (selected as list)
+set the q name of memoCue to text item 1 of paragraph 1 of theFileContents
+end if
+repeat with rowCount from 3 to thenumberofrows
+set theRow to (paragraph rowCount) of theFileContents
+if text items 2 through 10 of theRow is not {"", "", "", "", "", "", "", "", ""} then
+make type "network"
+set theCue to last item of (selected as list)
+
+
+--Patching the cue (If the correct network device definition is not set then the cues will not be created correctly)
+if text item 1 of paragraph 8 of theFileContents is "Patch Name" then
+set the network patch name of theCue to text item 1 of paragraph 10 of theFileContents
+if the network patch name of theCue is not text item 1 of paragraph 10 of theFileContents then
+display dialog ("Please create a network patch for QLab 5 and name it: " & text item 1 of paragraph 10 of theFileContents) with title "QLab Batch Cue Generator" with icon 1
+return
+end if
+else
+set the network patch number of theCue to text item 1 of paragraph 10 of theFileContents
+if the network patch number of theCue is not text item 1 of paragraph 10 of theFileContents then
+display dialog ("Please create a network patch for QLab 5 ordered number " & text item 1 of paragraph 10 of theFileContents & " in the network patch list.") with title "QLab Batch Cue Generator" with icon 1
+return
+end if
+end if
+
+
+if text item 2 of theRow is not "" then set the q number of theCue to text item 2 of theRow
+if text item 3 of theRow is not "" then set the q name of theCue to text item 3 of theRow
+
+
+--Adjusting the parameter order on destination (Active workspace, or specified by name/ID)
+if text item 1 of paragraph 12 of theFileContents is "Active Workspace" then
+set the parameter values of theCue to {"Cues", "useActive", (text item 4 of theRow), (text item 5 of theRow), (text item 6 of theRow), (text item 6 of theRow)}
+else
+set the parameter values of theCue to {"Cues", "useID", (text item 1 of paragraph 14 of theFileContents), (text item 4 of theRow), (text item 5 of theRow), (text item 6 of theRow)}
+end if --if using active workspace or specifying workspace name/ID
+
+
+if text item 10 of theRow is not "" then set the pre wait of theCue to text item 10 of theRow
+
+
+--Move inside group if indicated
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+end if --if the row is not blank
+
+
+end repeat
+on error
+display dialog "This script encountered an error. Make sure you are using version 3 of the QLab Batch Cue Generator sheet.  See https://www.taylorglad.com/post/qlab-5-batch-cue-generator-tsv"
+end try
+
+
+
+
+
+
+
+
+else if tsvType is "osc parameters" then
+try
+if addHeader then
+make type "memo"
+set memoCue to last item of (selected as list)
+set the q name of memoCue to text item 1 of paragraph 1 of theFileContents
+end if
+repeat with rowCount from 3 to thenumberofrows
+set theRow to (paragraph rowCount) of theFileContents
+if text items 2 through 18 of theRow is not {"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""} then
+make type "network"
+set theCue to last item of (selected as list)
+
+
+--Patching the cue (If the correct network device definition is not set then the cues will not be created correctly)
+if text item 1 of paragraph 8 of theFileContents is "Patch Name" then
+set the network patch name of theCue to text item 1 of paragraph 10 of theFileContents
+if the network patch name of theCue is not text item 1 of paragraph 10 of theFileContents then
+display dialog ("Please create a network patch for QLab 5 and name it: " & text item 1 of paragraph 10 of theFileContents) with title "QLab Batch Cue Generator" with icon 1
+return
+end if
+else
+set the network patch number of theCue to text item 1 of paragraph 10 of theFileContents
+if the network patch number of theCue is not text item 1 of paragraph 10 of theFileContents then
+display dialog ("Please create a network patch for QLab 5 ordered number " & text item 1 of paragraph 10 of theFileContents & " in the network patch list.") with title "QLab Batch Cue Generator" with icon 1
+return
+end if
+end if
+
+
+if text item 2 of theRow is not "" then set the q number of theCue to text item 2 of theRow
+if text item 3 of theRow is not "" then set the q name of theCue to text item 3 of theRow
+
+
+set the parameter values of theCue to {(text item 4 of theRow), (text item 5 of theRow), (text item 6 of theRow), (text item 7 of theRow), (text item 8 of theRow), (text item 9 of theRow), (text item 10 of theRow), (text item 11 of theRow)}
+
+
+--Set fading values
+set fadeList to {}
+if text item 4 of theRow is "*" then
+copy true to end of fadeList
+else
+copy false to end of fadeList
+end if
+if text item 5 of theRow is "*" then
+copy true to end of fadeList
+else
+copy false to end of fadeList
+end if
+if text item 6 of theRow is "*" then
+copy true to end of fadeList
+else
+copy false to end of fadeList
+end if
+if text item 7 of theRow is "*" then
+copy true to end of fadeList
+else
+copy false to end of fadeList
+end if
+if text item 8 of theRow is "*" then
+copy true to end of fadeList
+else
+copy false to end of fadeList
+end if
+if text item 9 of theRow is "*" then
+copy true to end of fadeList
+else
+copy false to end of fadeList
+end if
+if text item 10 of theRow is "*" then
+copy true to end of fadeList
+else
+copy false to end of fadeList
+end if
+if text item 11 of theRow is "*" then
+copy true to end of fadeList
+else
+copy false to end of fadeList
+end if
+if fadeList contains true then
+set the parameter fades enabled of theCue to fadeList
+if text item 12 of theRow is not "" then set the fade from of theCue to text item 12 of theRow
+if text item 13 of theRow is not "" then set the fade to of theCue to text item 13 of theRow
+if text item 14 of theRow is not "" then set the duration of theCue to text item 14 of theRow
+end if
+log fadeList
+if text item 18 of theRow is not "" then set the pre wait of theCue to text item 18 of theRow
+
+
+--Move inside group if indicated
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+end if --if the row is not blank
+
+
+end repeat
+on error
+display dialog "This script encountered an error. Make sure you are using version 3 of the QLab Batch Cue Generator sheet.  See https://www.taylorglad.com/post/qlab-5-batch-cue-generator-tsv"
+end try
+
+
+
+
+
+
+
+
+else if tsvType is "osc custom" then
+try
+if addHeader then
+make type "memo"
+set memoCue to last item of (selected as list)
+set the q name of memoCue to text item 1 of paragraph 1 of theFileContents
+end if
+repeat with rowCount from 3 to thenumberofrows
+set theRow to (paragraph rowCount) of theFileContents
+if text items 2 through 8 of theRow is not {"", "", "", "", "", "", ""} then
+make type "network"
+set theCue to last item of (selected as list)
+
+
+--Patching the cue (If the correct network device definition is not set then the cues will not be created correctly)
+if text item 1 of paragraph 8 of theFileContents is "Patch Name" then
+set the network patch name of theCue to text item 1 of paragraph 10 of theFileContents
+if the network patch name of theCue is not text item 1 of paragraph 10 of theFileContents then
+display dialog ("Please create a network patch for QLab 5 and name it: " & text item 1 of paragraph 10 of theFileContents) with title "QLab Batch Cue Generator" with icon 1
+return
+end if
+else
+set the network patch number of theCue to text item 1 of paragraph 10 of theFileContents
+if the network patch number of theCue is not text item 1 of paragraph 10 of theFileContents then
+display dialog ("Please create a network patch for QLab 5 ordered number " & text item 1 of paragraph 10 of theFileContents & " in the network patch list.") with title "QLab Batch Cue Generator" with icon 1
+return
+end if
+end if
+
+
+set the q number of theCue to text item 2 of theRow
+set the q name of theCue to text item 3 of theRow
+set the custom string of theCue to text item 4 of theRow
+if text item 8 of theRow is not "" then set the pre wait of theCue to text item 8 of theRow
+
+
+--Move inside group if indicated
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+end if
+end repeat
+on error
+display dialog "This script encountered an error. Make sure you are using version 3 of the QLab Batch Cue Generator sheet.  See https://www.taylorglad.com/post/qlab-5-batch-cue-generator-tsv"
+end try
+
+
+
+
+
+
+
+
+else if tsvType is "osc split" then
+try
+if addHeader then
+make type "memo"
+set memoCue to last item of (selected as list)
+set the q name of memoCue to text item 1 of paragraph 1 of theFileContents
+end if
+repeat with rowCount from 3 to thenumberofrows
+set theRow to (paragraph rowCount) of theFileContents
+if text items 2 through 13 of theRow is not {"", "", "", "", "", "", "", "", "", "", "", ""} then
+make type "network"
+set theCue to last item of (selected as list)
+
+
+--Patching the cue (If the correct network device definition is not set then the cues will not be created correctly)
+if text item 1 of paragraph 8 of theFileContents is "Patch Name" then
+set the network patch name of theCue to text item 1 of paragraph 10 of theFileContents
+if the network patch name of theCue is not text item 1 of paragraph 10 of theFileContents then
+display dialog ("Please create a network patch for QLab 5 and name it: " & text item 1 of paragraph 10 of theFileContents) with title "QLab Batch Cue Generator" with icon 1
+return
+end if
+else
+set the network patch number of theCue to text item 1 of paragraph 10 of theFileContents
+if the network patch number of theCue is not text item 1 of paragraph 10 of theFileContents then
+display dialog ("Please create a network patch for QLab 5 ordered number " & text item 1 of paragraph 10 of theFileContents & " in the network patch list.") with title "QLab Batch Cue Generator" with icon 1
+return
+end if
+end if
+
+
+if text item 2 of theRow is not "" then set the q number of theCue to text item 2 of theRow
+if text item 3 of theRow is not "" then set the q name of theCue to text item 3 of theRow
+if text item 9 of theRow is "" then
+set the custom string of theCue to text item 4 of theRow & text item 5 of theRow & text item 6 of theRow & text item 7 of theRow & text item 8 of theRow
+else
+set the custom string of theCue to text item 4 of theRow & text item 5 of theRow & text item 6 of theRow & text item 7 of theRow & text item 8 of theRow & " " & text item 9 of theRow
+end if
+end if
+if text item 13 of theRow is not "" then set the pre wait of theCue to text item 13 of theRow
+
+
+--Move inside group if indicated
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+
+
+end repeat
+on error
+display dialog "This script encountered an error. Make sure you are using version 3 of the QLab Batch Cue Generator sheet.  See https://www.taylorglad.com/post/qlab-5-batch-cue-generator-tsv"
+end try
+
+
+
+
+
+
+
+
+
+
+else if tsvType is "midi voice" then
+try
+if addHeader then
+make type "memo"
+set memoCue to last item of (selected as list)
+set the q name of memoCue to text item 1 of paragraph 1 of theFileContents
+end if
+set noPatchError to true
+repeat with rowCount from 3 to thenumberofrows
+set theRow to (paragraph rowCount) of theFileContents
+if text items 2 through 10 of theRow is not {"", "", "", "", "", "", "", "", ""} then
+make type "midi"
+set theCue to last item of (selected as list)
+
+
+--Patching the cue (The patch does not need to exist before creating the cues. So the cues will still be created and will need to be repatched.)
+if text item 1 of paragraph 8 of theFileContents is "Patch Name" then
+set the midi patch name of theCue to text item 1 of paragraph 10 of theFileContents
+if the midi patch name of theCue is not text item 1 of paragraph 10 of theFileContents and noPatchError then
+display dialog ("A MIDI patch named " & text item 1 of paragraph 10 of theFileContents & " was not found. Press OK to continue creating cues.") with title "QLab Batch Cue Generator" with icon 1
+set noPatchError to false
+end if
+else
+set the midi patch number of theCue to text item 1 of paragraph 10 of theFileContents
+if the midi patch number of theCue is not text item 1 of paragraph 10 of theFileContents and noPatchError then
+display dialog ("A MIDI patch numbered " & text item 1 of paragraph 10 of theFileContents & " was not found. Press OK to continue creating cues.") with title "QLab Batch Cue Generator" with icon 1
+set noPatchError to false
+end if
+end if
+
+
+set the message type of theCue to voice
+if text item 1 of paragraph 12 of theFileContents is "Note On" then set the command of theCue to note_on
+if text item 1 of paragraph 12 of theFileContents is "Note Off" then set the command of theCue to note_off
+if text item 1 of paragraph 12 of theFileContents is "Program Change" then set the command of theCue to program_change
+if text item 2 of theRow is not "" then set the q number of theCue to text item 2 of theRow
+if text item 3 of theRow is not "" then set the q name of theCue to text item 3 of theRow
+if text item 4 of theRow is not "" then set the channel of theCue to text item 4 of theRow
+if text item 5 of theRow is not "" then set the byte one of theCue to text item 5 of theRow
+if the command of theCue is not program_change then
+if text item 6 of theRow is not "" then set the byte two of theCue to text item 6 of theRow
+end if
+if text item 10 of theRow is not "" then set the pre wait of theCue to text item 10 of theRow
+
+
+--Move inside group if indicated
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+end if
+end repeat
+on error
+display dialog "This script encountered an error. Make sure you are using version 3 of the QLab Batch Cue Generator sheet.  See https://www.taylorglad.com/post/qlab-5-batch-cue-generator-tsv"
+end try
+
+
+
+
+
+
+else if tsvType is "midi show control" then
+try
+if addHeader then
+make type "memo"
+set memoCue to last item of (selected as list)
+set the q name of memoCue to text item 1 of paragraph 1 of theFileContents
+end if
+set noPatchError to true
+set commandFormats to {"All Types", "Lighting (General)", "Moving Lights", "Color Changers", "Strobes", "Lasers", "Chasers", "Sound (General)", ¬
+"Music", "CD Players", "EPROM Playback", "Audio Tape Machines", "Intercoms", "Amplifiers", "Audio Effects Devices", "Equalizers", "Machinery (General)", ¬
+"Rigging", "Flys", "Lifts", "Turntables", "Trusses", "Robots", "Animation", "Floats", "Breakaways", "Barges,Video (General)", "Video Tape Machines", ¬
+"Video Cassette Machines", "Video Disc Players", "Video Switchers", "Video Effects", "Video Character Generators", "Video Still Stores", "Video Monitors", ¬
+"Projection (General)", "Film Projectors", "Slide Projectors", "Video Projectors", "Dissolvers", "Shutter Controls", "Process Control (General)", "Hydraulic Oil", ¬
+"H20", "CO2", "Compressed Air", "Natural Gas", "Fog", "Smoke", "Cracked Haze", "Pyrotechnics (General)", "Fireworks", "Explosions", "Flame", "Smoke Pots"}
+
+
+set commandNumbers to {"GO", "STOP", "RESUME", "TIMED_GO", "LOAD", "SET", "FIRE", "ALL_OFF", "RESTORE", "RESET", "GO_OFF", ¬
+"GO/JAM_CLOCK", "STANDBY_+", "STANDBY_-", "SEQUENCE_+", "SEQUENCE_-", "START_CLOCK", "STOP_CLOCK", "ZERO_CLOCK", "SET_CLOCK", ¬
+"MTC_CHASE_ON", "MTC_CHASE_OFF", "OPEN_CUE_LIST", "CLOSE_CUE_LIST", "OPEN_CUE_PATH", "CLOSE_CUE_PATH"}
+repeat with rowCount from 3 to thenumberofrows
+set theRow to (paragraph rowCount) of theFileContents
+if text items 2 through 13 of theRow is not {"", "", "", "", "", "", "", "", "", "", "", ""} then
+make type "midi"
+set theCue to last item of (selected as list)
+
+
+--Patching the cue (The patch does not need to exist before creating the cues. So the cues will still be created and will need to be repatched.)
+if text item 1 of paragraph 8 of theFileContents is "Patch Name" then
+set the midi patch name of theCue to text item 1 of paragraph 10 of theFileContents
+if the midi patch name of theCue is not text item 1 of paragraph 10 of theFileContents and noPatchError then
+display dialog ("A MIDI patch named " & text item 1 of paragraph 10 of theFileContents & " was not found. Press OK to continue creating cues.") with title "QLab Batch Cue Generator" with icon 1
+set noPatchError to false
+end if
+else
+set the midi patch number of theCue to text item 1 of paragraph 10 of theFileContents
+if the midi patch number of theCue is not text item 1 of paragraph 10 of theFileContents and noPatchError then
+display dialog ("A MIDI patch numbered " & text item 1 of paragraph 10 of theFileContents & " was not found. Press OK to continue creating cues.") with title "QLab Batch Cue Generator" with icon 1
+set noPatchError to false
+end if
+end if
+
+
+set the message type of theCue to msc
+if text item 2 of theRow is not "" then set the q number of theCue to text item 2 of theRow
+if text item 3 of theRow is not "" then set the q name of theCue to text item 3 of theRow
+repeat with a from 1 to 55
+if item a of commandFormats is text item 4 of theRow then set commandFormat to a - 1
+end repeat
+set command format of theCue to commandFormat
+repeat with a from 1 to 26
+if item a of commandNumbers is text item 5 of theRow then set commandNumber to a
+end repeat
+set command number of theCue to commandNumber
+if text item 6 of theRow is not "" then set the deviceID of theCue to text item 6 of theRow
+if text item 7 of theRow is not "" then set the q_number of theCue to text item 7 of theRow
+if text item 8 of theRow is not "" then set the q_list of theCue to text item 8 of theRow
+if text item 9 of theRow is not "" then set the q_path of theCue to text item 9 of theRow
+if text item 13 of theRow is not "" then set the pre wait of theCue to text item 13 of theRow
+
+
+--Move inside group if indicated
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+end if
+end repeat
+on error
+display dialog "This script encountered an error. Make sure you are using version 3 of the QLab Batch Cue Generator sheet.  See https://www.taylorglad.com/post/qlab-5-batch-cue-generator-tsv"
+end try
+
+
+
+
+
+
+else if tsvType is "midi sysex" then
+try
+if addHeader then
+make type "memo"
+set memoCue to last item of (selected as list)
+set the q name of memoCue to text item 1 of paragraph 1 of theFileContents
+end if
+set noPatchError to true
+repeat with rowCount from 3 to thenumberofrows
+set theRow to (paragraph rowCount) of theFileContents
+if text items 2 through 8 of theRow is not {"", "", "", "", "", "", ""} then
+make type "midi"
+set theCue to last item of (selected as list)
+
+
+--Patching the cue (The patch does not need to exist before creating the cues. So the cues will still be created and will need to be repatched.)
+if text item 1 of paragraph 8 of theFileContents is "Patch Name" then
+set the midi patch name of theCue to text item 1 of paragraph 10 of theFileContents
+if the midi patch name of theCue is not text item 1 of paragraph 10 of theFileContents and noPatchError then
+display dialog ("A MIDI patch named " & text item 1 of paragraph 10 of theFileContents & " was not found. Press OK to continue creating cues.") with title "QLab Batch Cue Generator" with icon 1
+set noPatchError to false
+end if
+else
+set the midi patch number of theCue to text item 1 of paragraph 10 of theFileContents
+if the midi patch number of theCue is not text item 1 of paragraph 10 of theFileContents and noPatchError then
+display dialog ("A MIDI patch numbered " & text item 1 of paragraph 10 of theFileContents & " was not found. Press OK to continue creating cues.") with title "QLab Batch Cue Generator" with icon 1
+set noPatchError to false
+end if
+end if
+
+
+set the message type of theCue to sysex
+if text item 2 of theRow is not "" then set the q number of theCue to text item 2 of theRow
+if text item 3 of theRow is not "" then set the q name of theCue to text item 3 of theRow
+if text item 4 of theRow is not "" then set the sysex message of theCue to text item 4 of theRow
+if text item 8 of theRow is not "" then set the pre wait of theCue to text item 8 of theRow
+
+
+--Move inside group if indicated
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+end if
+end repeat
+on error
+display dialog "This script encountered an error. Make sure you are using version 3 of the QLab Batch Cue Generator sheet.  See https://www.taylorglad.com/post/qlab-5-batch-cue-generator-tsv"
+end try
+
+
+
+
+
+
+else if tsvType is "timecode" then
+try
+if addHeader then
+make type "memo"
+set memoCue to last item of (selected as list)
+set the q name of memoCue to text item 1 of paragraph 1 of theFileContents
+end if
+set noPatchError to true
+repeat with rowCount from 3 to thenumberofrows
+set theRow to (paragraph rowCount) of theFileContents
+if text items 2 through 11 of theRow is not {"", "", "", "", "", "", "", "", "", ""} then
+make type "timecode"
+set theCue to last item of (selected as list)
+
+
+if text item 1 of paragraph 12 of theFileContents is "Linear Timecode (LTC)" then
+set the type of theCue to ltc
+--Patching the cue (The patch does not need to exist before creating the cues. So the cues will still be created and will need to be repatched.)
+if text item 1 of paragraph 8 of theFileContents is "Patch Name" then
+set the audio output patch name of theCue to text item 1 of paragraph 10 of theFileContents
+if the audio output patch name of theCue is not text item 1 of paragraph 10 of theFileContents and noPatchError then
+display dialog ("An audio output patch named " & text item 1 of paragraph 10 of theFileContents & " was not found. Press OK to continue creating cues.") with title "QLab Batch Cue Generator" with icon 1
+set noPatchError to false
+end if
+else
+set the audio output patch number of theCue to text item 1 of paragraph 10 of theFileContents
+if the audio output patch number of theCue is not text item 1 of paragraph 10 of theFileContents and noPatchError then
+display dialog ("A n audio output patch numbered " & text item 1 of paragraph 10 of theFileContents & " was not found. Press OK to continue creating cues.") with title "QLab Batch Cue Generator" with icon 1
+set noPatchError to false
+end if
+end if
+set the output channel of theCue to text item 1 of paragraph 14 of theFileContents
+
+
+else if text item 1 of paragraph 12 of theFileContents is "MIDI Timecode (MTC)" then
+set the type of theCue to mtc
+--Patching the cue (The patch does not need to exist before creating the cues. So the cues will still be created and will need to be repatched.)
+if text item 1 of paragraph 8 of theFileContents is "Patch Name" then
+set the midi patch name of theCue to text item 1 of paragraph 10 of theFileContents
+if the midi patch name of theCue is not text item 1 of paragraph 10 of theFileContents and noPatchError then
+display dialog ("A MIDI patch named " & text item 1 of paragraph 10 of theFileContents & " was not found. Press OK to continue creating cues.") with title "QLab Batch Cue Generator" with icon 1
+set noPatchError to false
+end if
+else
+set the midi patch number of theCue to text item 1 of paragraph 10 of theFileContents
+if the midi patch number of theCue is not text item 1 of paragraph 10 of theFileContents and noPatchError then
+display dialog ("A MIDI patch numbered " & text item 1 of paragraph 10 of theFileContents & " was not found. Press OK to continue creating cues.") with title "QLab Batch Cue Generator" with icon 1
+set noPatchError to false
+end if
+end if
+end if -- handling differences between MTC and LTC
+
+
+
+
+
+
+set smpteFormat to text item 1 of paragraph 16 of theFileContents
+if smpteFormat is "24 fps" then
+set smpte format of theCue to fps_24
+else if smpteFormat is "25 fps" then
+set smpte format of theCue to fps_25
+else if smpteFormat is "30 fps non-drop" then
+set smpte format of theCue to fps_30_non_drop
+else if smpteFormat is "30 fps drop" then
+set smpte format of theCue to fps_30_drop
+end if
+
+
+if text item 2 of theRow is not "" then set the q number of theCue to text item 2 of theRow
+if text item 3 of theRow is not "" then set the q name of theCue to text item 3 of theRow
+if text item 7 of theRow is not "" then set the start time offset of theCue to text item 7 of theRow
+if text item 11 of theRow is not "" then set the pre wait of theCue to text item 11 of theRow
+
+
+--Move inside group if indicated
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+end if
+end repeat
+on error
+display dialog "This script encountered an error. Make sure you are using version 3 of the QLab Batch Cue Generator sheet.  See https://www.taylorglad.com/post/qlab-5-batch-cue-generator-tsv"
+end try
+
+
+
+
+
+
+else if tsvType is "start cues" then
+try
+if addHeader then
+make type "memo"
+set memoCue to last item of (selected as list)
+set the q name of memoCue to text item 1 of paragraph 1 of theFileContents
+end if
+repeat with rowCount from 3 to thenumberofrows
+set theRow to (paragraph rowCount) of theFileContents
+if text items 2 through 7 of theRow is not {"", "", "", "", "", ""} then
+make type "start"
+set theCue to last item of (selected as list)
+if text item 2 of theRow is not "" then set the q number of theCue to text item 2 of theRow
+if text item 3 of theRow is not "" then set the q name of theCue to text item 3 of theRow
+if text item 7 of theRow is not "" then set the pre wait of theCue to text item 7 of theRow
+
+
+--Move inside group if indicated
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+end if
+end repeat
+on error
+display dialog "This script encountered an error. Make sure you are using version 3 of the QLab Batch Cue Generator sheet.  See https://www.taylorglad.com/post/qlab-5-batch-cue-generator-tsv"
+end try
+
+
+
+
+
+
+else if tsvType is "load-to-time" then
+try
+set selectedCue to the first item in (selected as list)
+if addHeader then
+make type "memo"
+set memoCue to last item of (selected as list)
+set the q name of memoCue to text item 1 of paragraph 1 of theFileContents
+end if
+repeat with rowCount from 3 to thenumberofrows
+set theRow to (paragraph rowCount) of theFileContents
+if text items 2 through 7 of theRow is not {"", "", "", "", "", ""} then
+make type "load"
+set theCue to last item of (selected as list)
+set the cue target of theCue to selectedCue
+if text item 2 of theRow is not "" then set the q number of theCue to text item 2 of theRow
+if text item 3 of theRow is not "" then set the q name of theCue to text item 3 of theRow
+if text item 7 of theRow is not "" then set the load time of theCue to text item 7 of theRow
+
+
+--Move inside group if indicated
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+end if
+end repeat
+on error
+display dialog "This script encountered an error. Make sure you are using version 3 of the QLab Batch Cue Generator sheet.  See https://www.taylorglad.com/post/qlab-5-batch-cue-generator-tsv"
+end try
+
+
+
+
+
+
+else if tsvType is "memo cues" then
+try
+if addHeader then
+make type "memo"
+set memoCue to last item of (selected as list)
+set the q name of memoCue to text item 1 of paragraph 1 of theFileContents
+end if
+repeat with rowCount from 3 to thenumberofrows
+set theRow to (paragraph rowCount) of theFileContents
+if text items 2 through 7 of theRow is not {"", "", "", "", "", ""} then
+make type "memo"
+set theCue to last item of (selected as list)
+if text item 2 of theRow is not "" then set the q number of theCue to text item 2 of theRow
+if text item 3 of theRow is not "" then set the q name of theCue to text item 3 of theRow
+if text item 7 of theRow is not "" then set the pre wait of theCue to text item 7 of theRow
+
+
+--Move inside group if indicated
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+end if
+end repeat
+on error
+display dialog "This script encountered an error. Make sure you are using version 3 of the QLab Batch Cue Generator sheet.  See https://www.taylorglad.com/post/qlab-5-batch-cue-generator-tsv"
+end try
+
+
+
+
+
+
+else if tsvType is "audio targets" then
+set cuesFailed to false
+set cuesThatFailed to ""
+set flaggedCues to {}
+set foundCues to 0
+set theFolder to choose folder with prompt "Select the folder containing your audio files"
+set folderPath to POSIX path of theFolder
+if addHeader then
+make type "memo"
+set memoCue to last item of (selected as list)
+set the q name of memoCue to text item 1 of paragraph 1 of theFileContents
+end if
+repeat with rowCount from 3 to thenumberofrows
+set theRow to (paragraph rowCount) of theFileContents
+if text items 2 through 8 of theRow is not {"", "", "", "", "", "", ""} then
+try
+set theCue to cue (text item 2 of theRow)
+if (the q type of theCue is "Audio") then
+tell application "System Events"
+if exists file (folderPath & text item 4 of theRow) then
+set fileFound to true
+else
+set fileFound to false
+end if
+end tell
+if fileFound then
+set file target of theCue to POSIX file (folderPath & text item 4 of theRow)
+if the q default name of theCue is text item 4 of theRow then
+set foundCues to foundCues + 1
+else
+set cuesFailed to true
+if cuesThatFailed is not "" then set cuesThatFailed to cuesThatFailed & ", "
+set cuesThatFailed to cuesThatFailed & text item 2 of theRow
+if the flagged of theCue is not true then
+set the flagged of theCue to true
+set end of flaggedCues to theCue
+end if
+end if
+else
+set cuesFailed to true
+if cuesThatFailed is not "" then set cuesThatFailed to cuesThatFailed & ", "
+set cuesThatFailed to cuesThatFailed & text item 2 of theRow
+if the flagged of theCue is not true then
+set the flagged of theCue to true
+set end of flaggedCues to theCue
+end if
+end if
+set the pre wait of theCue to text item 8 of theRow
+if text item 3 of theRow is not "" then set the q name of theCue to text item 3 of theRow
+
+
+
+
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+else
+set cuesFailed to true
+if cuesThatFailed is not "" then set cuesThatFailed to cuesThatFailed & ", "
+set cuesThatFailed to cuesThatFailed & text item 2 of theRow
+if the flagged of theCue is not true then
+set the flagged of theCue to true
+set end of flaggedCues to theCue
+end if
+end if
+
+
+on error --if a cue can't be found with that number
+make type "audio"
+set theCue to last item of (selected as list)
+set the q number of theCue to text item 2 of theRow
+set the q name of theCue to text item 3 of theRow
+tell application "System Events"
+if text item 4 of theRow is "" then
+set fileFound to false
+else if exists file (folderPath & text item 4 of theRow) then
+set fileFound to true
+else
+set fileFound to false
+end if
+
+
+end tell
+if fileFound then
+set file target of theCue to POSIX file (folderPath & text item 4 of theRow)
+if the q default name of theCue is text item 4 of theRow then
+set foundCues to foundCues + 1
+else
+set cuesFailed to true
+if cuesThatFailed is not "" then set cuesThatFailed to cuesThatFailed & ", "
+set cuesThatFailed to cuesThatFailed & text item 2 of theRow
+if the flagged of theCue is not true then
+set the flagged of theCue to true
+set end of flaggedCues to theCue
+end if
+end if
+else
+set cuesFailed to true
+if cuesThatFailed is not "" then set cuesThatFailed to cuesThatFailed & ", "
+set cuesThatFailed to cuesThatFailed & text item 2 of theRow
+if the flagged of theCue is not true then
+set the flagged of theCue to true
+set end of flaggedCues to theCue
+end if
+end if
+set the pre wait of theCue to text item 8 of theRow
+
+
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+end try --trying to find an existing cue number
+end if
+end repeat
+if cuesFailed then
+display dialog "The following cues failed to update audio targets, and have been flagged:" & return & cuesThatFailed & return & return & foundCues & " cues were succesfully processed" with icon 2 with title "Audio Target Updates Failed" buttons {"Unflag", "Accept"} default button "Accept"
+if button returned of result is "Unflag" then
+repeat with eachCue in flaggedCues
+set the flagged of eachCue to false
+end repeat
+end if
+else if foundCues is not 0 then
+display dialog (foundCues as string) & " cues were succesfully relinked."
+end if
+
+
+
+
+
+
+else if tsvType is "video targets" then
+set cuesFailed to false
+set cuesThatFailed to ""
+set flaggedCues to {}
+set foundCues to 0
+set theFolder to choose folder with prompt "Select the folder containing your video files"
+set folderPath to POSIX path of theFolder
+if addHeader then
+make type "memo"
+set memoCue to last item of (selected as list)
+set the q name of memoCue to text item 1 of paragraph 1 of theFileContents
+end if
+repeat with rowCount from 3 to thenumberofrows
+set theRow to (paragraph rowCount) of theFileContents
+if text items 2 through 8 of theRow is not {"", "", "", "", "", "", ""} then
+try
+set theCue to cue (text item 2 of theRow)
+if (the q type of theCue is "Video") then
+tell application "System Events"
+if exists file (folderPath & text item 4 of theRow) then
+set fileFound to true
+else
+set fileFound to false
+end if
+end tell
+if fileFound then
+set file target of theCue to POSIX file (folderPath & text item 4 of theRow)
+if the q default name of theCue is text item 4 of theRow then
+set foundCues to foundCues + 1
+else
+set cuesFailed to true
+if cuesThatFailed is not "" then set cuesThatFailed to cuesThatFailed & ", "
+set cuesThatFailed to cuesThatFailed & text item 2 of theRow
+if the flagged of theCue is not true then
+set the flagged of theCue to true
+set end of flaggedCues to theCue
+end if
+end if
+else
+set cuesFailed to true
+if cuesThatFailed is not "" then set cuesThatFailed to cuesThatFailed & ", "
+set cuesThatFailed to cuesThatFailed & text item 2 of theRow
+if the flagged of theCue is not true then
+set the flagged of theCue to true
+set end of flaggedCues to theCue
+end if
+end if
+set the pre wait of theCue to text item 8 of theRow
+if text item 3 of theRow is not "" then set the q name of theCue to text item 3 of theRow
+
+
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+else
+set cuesFailed to true
+if cuesThatFailed is not "" then set cuesThatFailed to cuesThatFailed & ", "
+set cuesThatFailed to cuesThatFailed & text item 2 of theRow
+if the flagged of theCue is not true then
+set the flagged of theCue to true
+set end of flaggedCues to theCue
+end if
+end if
+on error --if a cue can't be found with that number
+make type "video"
+set theCue to last item of (selected as list)
+set the q number of theCue to text item 2 of theRow
+set the q name of theCue to text item 3 of theRow
+tell application "System Events"
+if text item 4 of theRow is "" then
+set fileFound to false
+else if exists file (folderPath & text item 4 of theRow) then
+set fileFound to true
+else
+set fileFound to false
+end if
+end tell
+if fileFound then
+set file target of theCue to POSIX file (folderPath & text item 4 of theRow)
+if the q default name of theCue is text item 4 of theRow then
+set foundCues to foundCues + 1
+else
+set cuesFailed to true
+if cuesThatFailed is not "" then set cuesThatFailed to cuesThatFailed & ", "
+set cuesThatFailed to cuesThatFailed & text item 2 of theRow
+if the flagged of theCue is not true then
+set the flagged of theCue to true
+set end of flaggedCues to theCue
+end if
+end if
+else
+set cuesFailed to true
+if cuesThatFailed is not "" then set cuesThatFailed to cuesThatFailed & ", "
+set cuesThatFailed to cuesThatFailed & text item 2 of theRow
+if the flagged of theCue is not true then
+set the flagged of theCue to true
+set end of flaggedCues to theCue
+end if
+end if
+set the pre wait of theCue to text item 8 of theRow
+
+
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+end try --trying to find an existing cue number
+end if
+end repeat
+if cuesFailed then
+display dialog "The following cues failed to update video targets, and have been flagged:" & return & cuesThatFailed & return & return & foundCues & " cues were succesfully processed" with icon 2 with title "Video Target Updates Failed" buttons {"Unflag", "Accept"} default button "Accept"
+if button returned of result is "Unflag" then
+repeat with eachCue in flaggedCues
+set the flagged of eachCue to false
+end repeat
+end if
+else if foundCues is not 0 then
+display dialog (foundCues as string) & " cues were succesfully processed."
+end if
+
+
+
+
+
+
+
+
+else if tsvType is "prompt" then
+set theSelection to the (selected as list)
+set songTitle to text item 1 of paragraph 1 of theFileContents
+set userChoice to choose from list {"Slices", "Start Cues", "Load-to-Time Cues", "Memo Cues", ¬
+"Start Cues and Slices", "Load-to-Time Cues and Slices", "Memo Cues and Slices", "Loads, Memos, and Slices", ¬
+"Starts, Loads, and Slices", "Starts, Loads, and Memos", "All"} with title ("QLab Batch Cue Generator - " & songTitle) with prompt "Convert tsv/csv to:" default items "Slices"
+
+
+try
+--Start CUES
+if (userChoice as string) contains "Start" or (userChoice as string is "ALL") then
+-- GROUP TYPE BLOCK
+set newCueGroupName to text item 1 of paragraph 6 of theFileContents
+if newCueGroupType is "New Group" then
+make type "group"
+set newCueGroup to last item of (selected as list)
+set the mode of newCueGroup to start_first_and_enter
+set the q name of newCueGroup to newCueGroupName
+set the q number of newCueGroup to ""
+collapse newCueGroup
+else if newCueGroupType is "New Cue List" then
+make type "cue list"
+--set newCueGroup to last cue list
+set q name of last cue list to newCueGroupName
+set current cue list to (last cue list whose q name is newCueGroupName)
+else if newCueGroupType is "Cue List" then
+try
+set current cue list to (last cue list whose q name is newCueGroupName)
+--set newCueGroup to current cue list
+on error
+make type "cue list"
+--set newCueGroup to last cue list
+set q name of last cue list to newCueGroupName
+set current cue list to (last cue list whose q name is newCueGroupName)
+end try
+else if newCueGroupType is "Cue List with Header" then
+try
+set current cue list to (last cue list whose q name is newCueGroupName)
+--set newCueGroup to current cue list
+on error
+make type "cue list"
+--set newCueGroup to last cue list
+set q name of last cue list to newCueGroupName
+set current cue list to (last cue list whose q name is newCueGroupName)
+end try
+set addHeader to true
+end if
+-- ^^^ GROUP TYPE BLOCK
+if addHeader then
+make type "memo"
+set memoCue to last item of (selected as list)
+set the q name of memoCue to text item 1 of paragraph 1 of theFileContents
+end if
+repeat with rowCount from 3 to thenumberofrows
+set theRow to (paragraph rowCount) of theFileContents
+if text items 2 through 7 of theRow is not {"", "", "", "", "", ""} then
+make type "start"
+set theCue to last item of (selected as list)
+if text item 2 of theRow is not "" then set the q number of theCue to text item 2 of theRow
+if text item 3 of theRow is not "" then set the q name of theCue to text item 3 of theRow
+if text item 7 of theRow is not "" then set the pre wait of theCue to text item 7 of theRow
+
+
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+end if
+end repeat
+end if -- Contains "Start"
+
+
+--Load CUES
+set selectedCue to first item in (selected as list)
+if (userChoice as string) contains "Load" or (userChoice as string is "ALL") then
+-- GROUP TYPE BLOCK
+set newCueGroupName to text item 1 of paragraph 8 of theFileContents
+if newCueGroupType is "New Group" then
+make type "group"
+set newCueGroup to last item of (selected as list)
+set the mode of newCueGroup to start_first_and_enter
+set the q name of newCueGroup to newCueGroupName
+set the q number of newCueGroup to ""
+collapse newCueGroup
+else if newCueGroupType is "New Cue List" then
+make type "cue list"
+--set newCueGroup to last cue list
+set q name of last cue list to newCueGroupName
+set current cue list to (last cue list whose q name is newCueGroupName)
+else if newCueGroupType is "Cue List" then
+try
+set current cue list to (last cue list whose q name is newCueGroupName)
+--set newCueGroup to current cue list
+on error
+make type "cue list"
+--set newCueGroup to last cue list
+set q name of last cue list to newCueGroupName
+set current cue list to (last cue list whose q name is newCueGroupName)
+end try
+else if newCueGroupType is "Cue List with Header" then
+try
+set current cue list to (last cue list whose q name is newCueGroupName)
+--set newCueGroup to current cue list
+on error
+make type "cue list"
+--set newCueGroup to last cue list
+set q name of last cue list to newCueGroupName
+set current cue list to (last cue list whose q name is newCueGroupName)
+end try
+set addHeader to true
+end if
+-- ^^^ GROUP TYPE BLOCK
+if addHeader then
+make type "memo"
+set memoCue to last item of (selected as list)
+set the q name of memoCue to text item 1 of paragraph 1 of theFileContents
+end if
+repeat with rowCount from 3 to thenumberofrows
+set theRow to (paragraph rowCount) of theFileContents
+if text items 2 through 7 of theRow is not {"", "", "", "", "", ""} then
+make type "load"
+set theCue to last item of (selected as list)
+if text item 2 of theRow is not "" then set the q number of theCue to text item 2 of theRow
+if text item 3 of theRow is not "" then set the q name of theCue to text item 3 of theRow
+if text item 7 of theRow is not "" then set the load time of theCue to text item 7 of theRow
+set the cue target of theCue to selectedCue
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+end if
+end repeat
+end if -- Contains "Load"
+
+
+--MEMO CUES
+if (userChoice as string) contains "Memo" or (userChoice as string is "ALL") then
+-- GROUP TYPE BLOCK
+set newCueGroupName to text item 1 of paragraph 10 of theFileContents
+if newCueGroupType is "New Group" then
+make type "group"
+set newCueGroup to last item of (selected as list)
+set the mode of newCueGroup to start_first_and_enter
+set the q name of newCueGroup to newCueGroupName
+set the q number of newCueGroup to ""
+collapse newCueGroup
+else if newCueGroupType is "New Cue List" then
+make type "cue list"
+--set newCueGroup to last cue list
+set q name of last cue list to newCueGroupName
+set current cue list to (last cue list whose q name is newCueGroupName)
+else if newCueGroupType is "Cue List" then
+try
+set current cue list to (last cue list whose q name is newCueGroupName)
+--set newCueGroup to current cue list
+on error
+make type "cue list"
+--set newCueGroup to last cue list
+set q name of last cue list to newCueGroupName
+set current cue list to (last cue list whose q name is newCueGroupName)
+end try
+else if newCueGroupType is "Cue List with Header" then
+try
+set current cue list to (last cue list whose q name is newCueGroupName)
+--set newCueGroup to current cue list
+on error
+make type "cue list"
+--set newCueGroup to last cue list
+set q name of last cue list to newCueGroupName
+set current cue list to (last cue list whose q name is newCueGroupName)
+end try
+set addHeader to true
+end if
+-- ^^^ GROUP TYPE BLOCK
+if addHeader then
+make type "memo"
+set memoCue to last item of (selected as list)
+set the q name of memoCue to text item 1 of paragraph 1 of theFileContents
+end if
+repeat with rowCount from 3 to thenumberofrows
+set theRow to (paragraph rowCount) of theFileContents
+if text items 2 through 7 of theRow is not {"", "", "", "", "", ""} then
+make type "memo"
+set theCue to last item of (selected as list)
+if text item 2 of theRow is not "" then set the q number of theCue to text item 2 of theRow
+if text item 3 of theRow is not "" then set the q name of theCue to text item 3 of theRow
+if text item 7 of theRow is not "" then set the pre wait of theCue to text item 7 of theRow
+
+
+if newCueGroupType is "New Group" then
+set newQID to uniqueID of theCue
+move cue id newQID of parent of theCue to end of newCueGroup
+end if
+end if
+end repeat
+end if -- Contains "Memo"
+
+
+--SLICES
+if (userChoice as string) contains "Slices" or (userChoice as string is "ALL") then
+repeat with theCue in theSelection
+if (the q type of theCue is "Video") or (the q type of theCue is "Audio") then
+set theCueEndTime to the end time of theCue
+set theMarkers to {}
+repeat with rowCount from 3 to thenumberofrows
+set eachRow to (paragraph rowCount) of theFileContents
+set theSliceTime to (text item 7 of eachRow)
+if theSliceTime as real is greater than theCueEndTime as real then
+display dialog "One of the imported slices in your TSV/CSV is past the end time of your selected cue" with title "Incompatible Slice" with icon 2
+return
+end if
+
+
+if theSliceTime is not in {"", "0"} then
+set end of theMarkers to {time:theSliceTime, playCount:1}
+end if
+
+
+end repeat --for eachLine
+set the slice markers of theCue to theMarkers
+
+
+else --theCue is an Audio or Video cue
+display dialog "Please select an audio or video cue before creating slices." with title "Select Audio or Video Cue" with icon 2
+end if --theCue is an Audio or Video cue
+end repeat --of the selected cues
+end if -- Contains "Slices"
+
+
+on error
+display dialog "This script encountered an error. Make sure you are using version 3 of the QLab Batch Cue Generator sheet.  See https://www.taylorglad.com/post/qlab-5-batch-cue-generator-tsv"
+end try
+
+
+
+
+
+
+
+
+else
+display dialog "Invalid tsv/csv file." with icon 2
+
+
+
+
+
+
+end if --tsvType options
+end tell --QLab front workspace
+end repeat --for each file selected
+set AppleScript's text item delimiters to thetids
